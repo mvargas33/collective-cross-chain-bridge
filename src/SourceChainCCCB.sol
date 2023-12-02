@@ -14,7 +14,7 @@ import {Withdraw} from "./utils/Withdraw.sol";
  * THIS IS AN EXAMPLE CONTRACT THAT USES UN-AUDITED CODE.
  * DO NOT USE THIS CODE IN PRODUCTION.
  */
-contract CollectiveCrossChainBridgeEthereum is CCIPReceiver, Withdraw {
+contract SourceChainCCCB is CCIPReceiver, Withdraw {
     using SafeERC20 for IERC20;
 
     enum ContractState {
