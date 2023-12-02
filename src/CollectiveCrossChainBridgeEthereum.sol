@@ -54,7 +54,8 @@ contract CollectiveCrossChainBridgeEthereum is CCIPReceiver, Withdraw {
 
     /**
      * Deposit {tokenAddress} token via transferFrom. Then records the amount in local structs.
-     * You cannot participate twice in the same round, for the sake of simplicity.
+     * You cannot participate twice in the same round, for the sake of simplicity. An approve
+     * must occur beforehand for at least {tokenAmount}.
      */
     function deposit(uint256 tokenAmount) public payable {
         require(contractState == ContractState.OPEN, "Wait for the next round");
@@ -68,7 +69,7 @@ contract CollectiveCrossChainBridgeEthereum is CCIPReceiver, Withdraw {
         rounds[currentRound].participants.push(msg.sender);
         rounds[currentRound].balances.push(tokenAmount);
 
-        balances[msg.sender] += tokenAmount;
+        balances[msg.sender] = tokenAmount;
         currentTokenAmount += tokenAmount;
     }
 
