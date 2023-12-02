@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {LinkTokenInterface} from "@chainlink/contracts/src/v0.8/interfaces/LinkTokenInterface.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
@@ -26,6 +26,7 @@ contract CollectiveCrossChainBridgeEthereum is Withdraw {
     uint64 immutable polygonChainSelector = 12532609583862916517; // Polygon Mumbai
     IERC20 immutable tokenAddress = IERC20(0x1a93Dd2Ff0308F0Ae65a94aDC191E8A43d2e978c); // Only token allowed to bridge
     address immutable receiverInPolygon = 0x1a93Dd2Ff0308F0Ae65a94aDC191E8A43d2e978c; // polygon contract address. TODO: Add setter/getter onlyOwner, the burn keys
+    uint256 immutable depositTaxInNativeToken = 0.0001 ether;
 
     ContractState private contractState = ContractState.OPEN;
 
@@ -48,9 +49,10 @@ contract CollectiveCrossChainBridgeEthereum is Withdraw {
 
     receive() external payable {}
 
-    function deposit(uint256 amount) {
+    function deposit(uint256 amount) payable {
         require(contractState == ContractState.OPEN, "Wait for the next round");
         require(msg.sender != address(0));
+        require(msg.value >= depositTaxInNativeToken, "Insuffitient tax");
 
         tokenAddress.safeTransferFrom(msg.sender, address(this), amount);
 
@@ -67,9 +69,10 @@ contract CollectiveCrossChainBridgeEthereum is Withdraw {
 
         contractState = ContractState.BLOCKED;
 
-        // TODO: Call bridge to receiverInPolygon
-
         messageid = sendRoundToPolygon();
+
+        (bool success, ) = payable(msg.sender).call{ value: address(this).balance }(""); // Whoever bridge this rounds gets the eth in the contract
+        require(success, "Transfer ETH in contract failed");
 
         return messageId;
     }
