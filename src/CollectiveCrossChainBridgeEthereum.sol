@@ -22,124 +22,138 @@ contract CollectiveCrossChainBridgeEthereum is CCIPReceiver, Withdraw {
         BLOCKED
     }
 
-    address immutable i_link = 0x779877A7B0D9E8603169DdbD7836e478b4624789; // LINK Sepolia
-    uint64 immutable polygonChainSelector = 12532609583862916517; // Polygon Mumbai
-    IERC20 immutable tokenAddress = IERC20(0x1a93Dd2Ff0308F0Ae65a94aDC191E8A43d2e978c); // Only token allowed to bridge
-    address immutable receiverInPolygon = 0x1a93Dd2Ff0308F0Ae65a94aDC191E8A43d2e978c; // polygon contract address. TODO: Add setter/getter onlyOwner, the burn keys
-    uint256 immutable depositTaxInNativeToken = 0.0001 ether;
-
-    ContractState private contractState = ContractState.OPEN;
-
     struct Round {
-        uint256 roundId;
-        mapping(address => uint256) balances;
-        address[] participants;
-    }
-
-    struct EncodableRound {
       uint256 roundId;
       uint256[] balances;
       address[] participants;
     }
 
-    mapping(uint256 => Round) rounds;
-    uint256 currentRound;
+    ContractState public contractState;
+    address public tokenAddress;
+    uint64 public destinationChainSelector;
+    address public destinationContract;
+    uint256 public nativeTokenTax;
 
+    uint256 currentRound;
+    uint256 currentTokenAmount;
+    mapping(address => uint256) balances;
+    mapping(uint256 => Round) rounds;
     mapping(uint256 => bool) successfulRounds;
 
-    LinkTokenInterface linkToken;
-
-    constructor(address _router, address link) CCIPReceiver(_router) {
-        linkToken = LinkTokenInterface(link);
-        currentRound = 0;
-        rounds[0].roundId = 0;
+    constructor(address _router, address _tokenAddress, uint64 _destinationChainSelector, address _destinationContract, uint256 _nativeTokenTax) CCIPReceiver(_router) {
+      contractState = ContractState.OPEN;
+      tokenAddress = _tokenAddress;
+      destinationChainSelector = _destinationChainSelector;
+      destinationContract = _destinationContract;
+      nativeTokenTax = _nativeTokenTax;
+      currentRound = 0;
+      currentTokenAmount = 0;
     }
 
     receive() external payable {}
 
-    function deposit(uint256 amount) public payable {
+    /**
+     * Deposit {tokenAddress} token via transferFrom. Then records the amount in local structs.
+     * You cannot participate twice in the same round, for the sake of simplicity.
+     */
+    function deposit(uint256 tokenAmount) public payable {
         require(contractState == ContractState.OPEN, "Wait for the next round");
         require(msg.sender != address(0));
-        require(msg.value >= depositTaxInNativeToken, "Insuffitient tax");
+        require(msg.value >= nativeTokenTax, "Insuffitient tax");
+        require(balances[msg.sender] == 0, "You already entered this round, wait for the next one");
+        require(tokenAmount > 0, "Amount should be greater than zero");
 
-        tokenAddress.safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
-        if (rounds[currentRound].balances[msg.sender] == 0) {
-            rounds[currentRound].participants.push(msg.sender);
-        }
+        rounds[currentRound].participants.push(msg.sender);
+        rounds[currentRound].balances.push(tokenAmount);
 
-        rounds[currentRound].balances[msg.sender] += amount;
+        balances[msg.sender] += tokenAmount;
+        currentTokenAmount += tokenAmount;
     }
 
-    function bridge() external returns (bytes32) {
+    /**
+     * Anyone can call this function to end the current round and bridge the tokens in the contract.
+     * The caller gets all native token present in the contract, collected through the collective
+     * {nativeTokenTax} that each participant gave over time. Blocks the contract until the message
+     * of sucess arrives from the destination chain.
+     */
+    function bridge() external returns (bytes32 messageId) {
         require(contractState == ContractState.OPEN, "Wait for the next round");
         require(msg.sender != address(0));
+        require(currentTokenAmount > 0, "No participants yet");
+        require(IERC20(tokenAddress).balanceOf(address(this)) >= currentTokenAmount, "Corrupted contract");
+        require(rounds[currentRound].balances.length == rounds[currentRound].participants.length, "Corrupted contract");
 
+        // Bridge tokens with current Round data
         contractState = ContractState.BLOCKED;
+        messageId = _sendRoundToPolygon();
 
-        bytes32 messageId = _sendRoundToPolygon();
-
-        (bool success, ) = payable(msg.sender).call{ value: address(this).balance }(""); // Whoever bridge this rounds gets the eth in the contract
+        // Pay back for the call
+        (bool success, ) = payable(msg.sender).call{ value: address(this).balance }("");
         require(success, "Transfer ETH in contract failed");
 
         return messageId;
     }
 
-    function _sendRoundToPolygon() internal returns (bytes32 messageId) {
-        uint256 roundId = rounds[currentRound].roundId;
-        address[] memory participants = new address[](rounds[currentRound].participants.length);
-        uint256[] memory balances = new uint256[](rounds[currentRound].participants.length);
-        
-        for (uint256 j = 0; j < rounds[currentRound].participants.length; j++) {
-          participants[j] = rounds[currentRound].participants[j];
-          balances[j] = (rounds[currentRound].balances[participants[j]]);
-        }
-
-        EncodableRound memory roundToSend = EncodableRound(
-          roundId,
-          balances,
-          participants
-        );
-
-        Client.EVMTokenAmount memory tokenAmount = Client.EVMTokenAmount({token: address(tokenAddress), amount: 0}); // TODO: define total amouny
-
+    /**
+     * Sends the {tokenAddress} and {currentRound} Round to destination chain via CCIP.
+     * Returns messageId for tracking purposes.
+     */
+    function _sendRoundToPolygon() internal returns (bytes32) {
+        Client.EVMTokenAmount memory tokenAmount = Client.EVMTokenAmount({token: address(tokenAddress), amount: currentTokenAmount});
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = tokenAmount;
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
-            receiver: abi.encode(receiverInPolygon),
-            data: abi.encode(roundToSend),
+            receiver: abi.encode(destinationContract),
+            data: abi.encode(rounds[currentRound]),
             tokenAmounts: tokenAmounts,
             extraArgs: Client._argsToBytes(
-              Client.EVMExtraArgsV1({gasLimit: 2_000_000, strict: false}) // Additional arguments, setting gas limit and non-strict sequency mode
+              Client.EVMExtraArgsV1({gasLimit: 2_000_000, strict: false})
             ),
-            feeToken: address(0) // or address(linkToken)
+            feeToken: address(0) // Pay in native
         });
 
         IRouterClient router = IRouterClient(this.getRouter());
+        uint256 fees = router.getFee(destinationChainSelector, message);
 
-        uint256 fees = router.getFee(polygonChainSelector, message);
-        linkToken.approve(address(router), fees);
-
-        IERC20(tokenAddress).approve(address(router), 0); // TODO: Replace amount (total between participants)
-
-        messageId = router.ccipSend{value: fees}(polygonChainSelector, message); // TODO: Decide to use eth or link
-
-        return messageId;
+        return router.ccipSend{value: fees}(destinationChainSelector, message);
     }
 
+    /**
+     * Triggered by destination contract in destination chain, this function act as an ACK
+     * that the bridged balances were succesfully distributed in that chain. Resets this
+     * contract state and pass to the next round.
+     */
     function _ccipReceive(Client.Any2EVMMessage memory any2EvmMessage) internal override {
         // bytes32 messageId = any2EvmMessage.messageId;
         uint64 sourceChainSelector = any2EvmMessage.sourceChainSelector; // fetch the source chain identifier (aka selector)
         address sender = abi.decode(any2EvmMessage.sender, (address)); // abi-decoding of the sender address
 
-        require(sourceChainSelector == polygonChainSelector, "Message from invalid chain");
-        require(sender == receiverInPolygon, "Invalid sender");
+        require(sourceChainSelector == destinationChainSelector, "Message from invalid chain");
+        require(sender == destinationContract, "Invalid sender");
 
         uint256 roundIdProcessed = abi.decode(any2EvmMessage.data, (uint256)); // abi-decoding of the sent string message
 
-        successfulRounds[roundIdProcessed] = true;
-        currentRound += 1;
-        contractState = ContractState.OPEN;
+        require(roundIdProcessed == currentRound, "Corrupted contract");
+
+        _nextRound();
+    }
+
+    /**
+     * Reset local balances, mark the current round as successful, pass to the next round,
+     * and finally opens the contract again.
+     */
+    function _nextRound() internal {
+      successfulRounds[currentRound] = true;
+
+      for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
+        balances[rounds[currentRound].participants[i]] = 0;
+      }
+
+      currentRound += 1;
+      currentTokenAmount = 0;
+      contractState = ContractState.OPEN;
     }
 }
