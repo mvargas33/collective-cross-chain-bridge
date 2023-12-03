@@ -17,9 +17,9 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
     }
 
     struct Round {
-      uint256 roundId;
-      uint256[] balances;
-      address[] participants;
+        uint256 roundId;
+        uint256[] balances;
+        address[] participants;
     }
 
     ContractState public contractState;
@@ -33,7 +33,9 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
     mapping(uint256 => Round) rounds;
     mapping(uint256 => bool) successfulRounds;
 
-    constructor(address _router, address _tokenAddress, uint64 _destinationChainSelector, address _destinationContract) CCIPReceiver(_router) {
+    constructor(address _router, address _tokenAddress, uint64 _destinationChainSelector, address _destinationContract)
+        CCIPReceiver(_router)
+    {
         contractState = ContractState.BLOCKED;
         tokenAddress = _tokenAddress;
         destinationChainSelector = _destinationChainSelector;
@@ -92,7 +94,7 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
         successfulRounds[currentRound] = true;
 
         _sendMessage();
-        
+
         contractState == ContractState.BLOCKED;
     }
 
@@ -104,9 +106,7 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
             receiver: abi.encode(destinationContract),
             data: abi.encode(currentRound),
             tokenAmounts: new Client.EVMTokenAmount[](0),
-            extraArgs: Client._argsToBytes(
-              Client.EVMExtraArgsV1({gasLimit: 200_000, strict: false})
-            ),
+            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 200_000, strict: false})),
             feeToken: address(0)
         });
 
@@ -114,6 +114,4 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
         uint256 fees = router.getFee(destinationChainSelector, message);
         return router.ccipSend{value: fees}(destinationChainSelector, message);
     }
-
-    
 }

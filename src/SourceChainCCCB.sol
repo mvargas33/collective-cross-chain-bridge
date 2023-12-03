@@ -4,8 +4,8 @@ pragma solidity 0.8.20;
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Withdraw} from "./utils/Withdraw.sol";
 
 contract SourceChainCCCB is CCIPReceiver, Withdraw {
@@ -17,9 +17,9 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
     }
 
     struct Round {
-      uint256 roundId;
-      uint256[] balances;
-      address[] participants;
+        uint256 roundId;
+        uint256[] balances;
+        address[] participants;
     }
 
     ContractState public contractState;
@@ -29,19 +29,28 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
     uint256 public nativeTokenTax;
 
     uint256 currentRound;
-    uint256 currentTokenAmount;
     mapping(address => uint256) balances;
     mapping(uint256 => Round) rounds;
     mapping(uint256 => bool) successfulRounds;
 
-    constructor(address _router, address _tokenAddress, uint64 _destinationChainSelector, address _destinationContract, uint256 _nativeTokenTax) CCIPReceiver(_router) {
-      contractState = ContractState.OPEN;
-      tokenAddress = _tokenAddress;
-      destinationChainSelector = _destinationChainSelector;
-      destinationContract = _destinationContract;
-      nativeTokenTax = _nativeTokenTax;
-      currentRound = 0;
-      currentTokenAmount = 0;
+    constructor(
+        address _router,
+        address _tokenAddress,
+        uint64 _destinationChainSelector,
+        address _destinationContract,
+        uint256 _nativeTokenTax
+    ) CCIPReceiver(_router) {
+        contractState = ContractState.OPEN;
+        tokenAddress = _tokenAddress;
+        destinationChainSelector = _destinationChainSelector;
+        destinationContract = _destinationContract;
+        nativeTokenTax = _nativeTokenTax;
+        currentRound = 0;
+        rounds[currentRound].roundId = 0;
+        // rounds[currentRound].participants.push(address(0));
+        balances[address(0)] = 0;
+        // rounds[currentRound].balances.pop();
+        // rounds[currentRound].participants.pop();
     }
 
     receive() external payable {}
@@ -61,10 +70,7 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
         rounds[currentRound].participants.push(msg.sender);
-        rounds[currentRound].balances.push(tokenAmount);
-
         balances[msg.sender] = tokenAmount;
-        currentTokenAmount += tokenAmount;
     }
 
     /**
@@ -76,16 +82,23 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
     function bridge() external returns (bytes32 messageId) {
         require(contractState == ContractState.OPEN, "Wait for the next round");
         require(msg.sender != address(0));
-        require(currentTokenAmount > 0, "No participants yet");
+        require(rounds[currentRound].participants.length > 0, "No participants yet");
+
+        uint256 currentTokenAmount = 0;
+
+        for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
+          rounds[currentRound].balances.push(balances[rounds[currentRound].participants[i]]);
+          currentTokenAmount += balances[rounds[currentRound].participants[i]];
+        }
+
         require(IERC20(tokenAddress).balanceOf(address(this)) >= currentTokenAmount, "Corrupted contract");
-        require(rounds[currentRound].balances.length == rounds[currentRound].participants.length, "Corrupted contract");
 
         // Bridge tokens with current Round data
         contractState = ContractState.BLOCKED;
-        messageId = _sendRoundToPolygon();
+        messageId = _bridgeBalances(currentTokenAmount);
 
         // Pay back for the call
-        (bool success, ) = payable(msg.sender).call{ value: address(this).balance }("");
+        (bool success,) = payable(msg.sender).call{value: address(this).balance}("");
         require(success, "Transfer ETH in contract failed");
 
         return messageId;
@@ -95,22 +108,28 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
      * Sends the {tokenAddress} and {currentRound} Round to destination chain via CCIP.
      * Returns messageId for tracking purposes.
      */
-    function _sendRoundToPolygon() internal returns (bytes32) {
-        Client.EVMTokenAmount memory tokenAmount = Client.EVMTokenAmount({token: address(tokenAddress), amount: currentTokenAmount});
+    function _bridgeBalances(uint256 currentTokenAmount) internal returns (bytes32) {
+        Client.EVMTokenAmount memory tokenAmount =
+            Client.EVMTokenAmount({token: address(tokenAddress), amount: currentTokenAmount});
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = tokenAmount;
+
+        IRouterClient router = IRouterClient(this.getRouter());
+
+        IERC20(tokenAddress).approve(
+            address(router),
+            currentTokenAmount
+        );
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(destinationContract),
             data: abi.encode(rounds[currentRound]),
             tokenAmounts: tokenAmounts,
-            extraArgs: Client._argsToBytes(
-              Client.EVMExtraArgsV1({gasLimit: 2_000_000, strict: false})
-            ),
+            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 200_000, strict: false})),
             feeToken: address(0) // Pay in native
         });
 
-        IRouterClient router = IRouterClient(this.getRouter());
+        
         uint256 fees = router.getFee(destinationChainSelector, message);
 
         return router.ccipSend{value: fees}(destinationChainSelector, message);
@@ -141,14 +160,13 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
      * and finally opens the contract again.
      */
     function _nextRound() internal {
-      successfulRounds[currentRound] = true;
+        successfulRounds[currentRound] = true;
 
-      for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
-        balances[rounds[currentRound].participants[i]] = 0;
-      }
+        for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
+            balances[rounds[currentRound].participants[i]] = 0;
+        }
 
-      currentRound += 1;
-      currentTokenAmount = 0;
-      contractState = ContractState.OPEN;
+        currentRound += 1;
+        contractState = ContractState.OPEN;
     }
 }

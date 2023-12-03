@@ -2,13 +2,13 @@
 pragma solidity 0.8.20;
 
 import "forge-std/Script.sol";
-import "./Helper.sol";
+import {Utils} from "../test/Utils.sol";
 
 interface ICCIPToken {
     function drip(address to) external;
 }
 
-contract Faucet is Script, Helper {
+contract Faucet is Script, Utils {
     function run(SupportedNetworks network) external {
         uint256 senderPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(senderPrivateKey);
