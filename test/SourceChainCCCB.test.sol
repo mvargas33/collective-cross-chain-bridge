@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test, console2} from "forge-std/Test.sol";
 import {SourceChainCCCB} from "../src/SourceChainCCCB.sol";
 import {BasicTokenSender} from "../src/BasicTokenSender.sol";
-import {Utils} from "./Utils.sol";
+import {Utils} from "./utils/Utils.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 
 contract SourceChainCCCBTest is Test, Utils {
@@ -74,16 +74,16 @@ contract SourceChainCCCBTest is Test, Utils {
      */
     function test_colectiveDeposit() public {
         uint256 tokenAmount = 10e18;
-        uint256 n = 5;
+        uint256 n = 600;
 
         for (uint256 i = 0; i < n; i++) {
-          address user = vm.addr(100 + i);
-          deal(ccipBnMEthereumSepolia, user, tokenAmount);
+            address user = vm.addr(100 + i);
+            deal(ccipBnMEthereumSepolia, user, tokenAmount);
 
-          vm.startPrank(user);
-          IERC20(ccipBnMEthereumSepolia).approve(address(bridge), tokenAmount);
-          bridge.deposit(tokenAmount);
-          vm.stopPrank();
+            vm.startPrank(user);
+            IERC20(ccipBnMEthereumSepolia).approve(address(bridge), tokenAmount);
+            bridge.deposit(tokenAmount);
+            vm.stopPrank();
         }
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), n * tokenAmount);

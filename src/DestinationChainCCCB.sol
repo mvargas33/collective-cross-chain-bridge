@@ -57,7 +57,7 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
         require(sender == destinationContract, "Invalid sender");
 
         Round memory newRound = abi.decode(any2EvmMessage.data, (Round));
-        require(newRound.roundId == currentRound + 1, "Corrupted contract");
+        require(newRound.roundId == currentRound, "Corrupted contract");
 
         rounds[currentRound] = newRound;
         currentRound = newRound.roundId;
@@ -90,7 +90,7 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
             pendingBalances[to] = 0;
         }
 
-        require(currentTokenAmount == 0, "Corrupted contract");
+        require(currentTokenAmount == 0, "Correupted contract: some asset was not send");
         successfulRounds[currentRound] = true;
 
         _sendMessage();

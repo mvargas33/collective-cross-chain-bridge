@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import "forge-std/Script.sol";
-import {Utils} from "../test/Utils.sol";
+import {Utils} from "../test/utils/Utils.sol";
 
 interface ICCIPToken {
     function drip(address to) external;

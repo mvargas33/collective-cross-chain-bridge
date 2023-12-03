@@ -87,8 +87,8 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
         uint256 currentTokenAmount = 0;
 
         for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
-          rounds[currentRound].balances.push(balances[rounds[currentRound].participants[i]]);
-          currentTokenAmount += balances[rounds[currentRound].participants[i]];
+            rounds[currentRound].balances.push(balances[rounds[currentRound].participants[i]]);
+            currentTokenAmount += balances[rounds[currentRound].participants[i]];
         }
 
         require(IERC20(tokenAddress).balanceOf(address(this)) >= currentTokenAmount, "Corrupted contract");
@@ -116,10 +116,7 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
 
         IRouterClient router = IRouterClient(this.getRouter());
 
-        IERC20(tokenAddress).approve(
-            address(router),
-            currentTokenAmount
-        );
+        IERC20(tokenAddress).approve(address(router), currentTokenAmount);
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(destinationContract),
@@ -129,7 +126,6 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
             feeToken: address(0) // Pay in native
         });
 
-        
         uint256 fees = router.getFee(destinationChainSelector, message);
 
         return router.ccipSend{value: fees}(destinationChainSelector, message);
