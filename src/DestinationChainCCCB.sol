@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.20;
 
+import {IDestinationChainCCCB} from "./interfaces/IDestinationChainCCCB.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
@@ -8,30 +9,19 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Withdraw} from "./utils/Withdraw.sol";
 
-contract DestinationChainCCCB is CCIPReceiver, Withdraw {
+contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Withdraw {
     using SafeERC20 for IERC20;
-
-    enum ContractState {
-        OPEN,
-        BLOCKED
-    }
-
-    struct Round {
-        uint256 roundId;
-        uint256[] balances;
-        address[] participants;
-    }
 
     ContractState public contractState;
     address public tokenAddress;
     uint64 public destinationChainSelector;
     address public destinationContract;
 
-    uint256 currentRound;
-    uint256 currentTokenAmount;
-    mapping(address => uint256) pendingBalances;
-    mapping(uint256 => Round) rounds;
-    mapping(uint256 => bool) successfulRounds;
+    uint256 public currentRound;
+    uint256 public currentTokenAmount;
+    mapping(address => uint256) public pendingBalances;
+    mapping(uint256 => Round) public rounds;
+    mapping(uint256 => bool) public successfulRounds;
 
     constructor(address _router, address _tokenAddress, uint64 _destinationChainSelector, address _destinationContract)
         CCIPReceiver(_router)
@@ -68,14 +58,14 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
             currentTokenAmount += newRound.balances[i];
         }
 
-        contractState == ContractState.OPEN;
+        contractState = ContractState.OPEN;
     }
 
     /**
      * Send all pendingBalances to participants of this round. Then lock this contract again until
      * the next round.
      */
-    function sendBalances() public {
+    function distributeFunds() public {
         require(contractState == ContractState.OPEN, "Wait for the next round");
         require(msg.sender != address(0));
         require(IERC20(tokenAddress).balanceOf(address(this)) >= currentTokenAmount, "Corrupted contract");
@@ -95,7 +85,7 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
 
         _sendMessage();
 
-        contractState == ContractState.BLOCKED;
+        contractState = ContractState.BLOCKED;
     }
 
     /**
@@ -113,5 +103,33 @@ contract DestinationChainCCCB is CCIPReceiver, Withdraw {
         IRouterClient router = IRouterClient(this.getRouter());
         uint256 fees = router.getFee(destinationChainSelector, message);
         return router.ccipSend{value: fees}(destinationChainSelector, message);
+    }
+
+    function getCurrentRoundId() public view returns (uint256) {
+        return currentRound;
+    }
+
+    function getCurrentTokenAmount() public view returns (uint256) {
+        return currentTokenAmount;
+    }
+
+    function getPendingBalances(address user) public view returns (uint256) {
+        return pendingBalances[user];
+    }
+
+    function getRound(uint256 roundId) public view returns (Round memory round) {
+        return rounds[roundId];
+    }
+
+    function isRoundSuccessful(uint256 roundId) public view returns (bool) {
+        return successfulRounds[roundId];
+    }
+
+    function getContractState() public view returns (IDestinationChainCCCB.ContractState) {
+        return contractState;
+    }
+
+    function getTokenAddress() public view returns (address) {
+        return tokenAddress;
     }
 }

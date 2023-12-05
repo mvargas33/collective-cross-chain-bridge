@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.20;
 
+import {ISourceChainCCCB} from "./interfaces/ISourceChainCCCB.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
@@ -8,19 +9,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Withdraw} from "./utils/Withdraw.sol";
 
-contract SourceChainCCCB is CCIPReceiver, Withdraw {
+contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, Withdraw {
     using SafeERC20 for IERC20;
-
-    enum ContractState {
-        OPEN,
-        BLOCKED
-    }
-
-    struct Round {
-        uint256 roundId;
-        uint256[] balances;
-        address[] participants;
-    }
 
     ContractState public contractState;
     address public tokenAddress;
@@ -79,7 +69,7 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
      * {nativeTokenTax} that each participant gave over time. Blocks the contract until the message
      * of sucess arrives from the destination chain.
      */
-    function bridge() external returns (bytes32 messageId) {
+    function bridge() external returns (bytes32 messageId, uint256 fees) {
         require(contractState == ContractState.OPEN, "Wait for the next round");
         require(msg.sender != address(0));
         require(rounds[currentRound].participants.length > 0, "No participants yet");
@@ -95,20 +85,20 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
 
         // Bridge tokens with current Round data
         contractState = ContractState.BLOCKED;
-        messageId = _bridgeBalances(currentTokenAmount);
+        (messageId, fees) = _bridgeBalances(currentTokenAmount);
 
         // Pay back for the call
         (bool success,) = payable(msg.sender).call{value: address(this).balance}("");
         require(success, "Transfer ETH in contract failed");
 
-        return messageId;
+        return (messageId, fees);
     }
 
     /**
      * Sends the {tokenAddress} and {currentRound} Round to destination chain via CCIP.
      * Returns messageId for tracking purposes.
      */
-    function _bridgeBalances(uint256 currentTokenAmount) internal returns (bytes32) {
+    function _bridgeBalances(uint256 currentTokenAmount) internal returns (bytes32, uint256) {
         Client.EVMTokenAmount memory tokenAmount =
             Client.EVMTokenAmount({token: address(tokenAddress), amount: currentTokenAmount});
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
@@ -127,8 +117,8 @@ contract SourceChainCCCB is CCIPReceiver, Withdraw {
         });
 
         uint256 fees = router.getFee(destinationChainSelector, message);
-
-        return router.ccipSend{value: fees}(destinationChainSelector, message);
+        bytes32 messageId = router.ccipSend{value: fees}(destinationChainSelector, message);
+        return (messageId, fees);
     }
 
     /**
