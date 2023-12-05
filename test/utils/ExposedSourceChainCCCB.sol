@@ -13,7 +13,7 @@ contract ExposedSourceChainCCCB is SourceChainCCCB {
         uint256 _nativeTokenTax
     ) SourceChainCCCB(_router, _tokenAddress, _destinationChainSelector, _destinationContract, _nativeTokenTax) {}
 
-    function exposed_bridgeBalances(uint256 currentTokenAmount) public returns (bytes32) {
+    function exposed_bridgeBalances(uint256 currentTokenAmount) public returns (bytes32, uint256) {
         return _bridgeBalances(currentTokenAmount);
     }
 

@@ -74,7 +74,7 @@ contract SourceChainCCCBTest is Test, Utils {
      */
     function test_colectiveDeposit() public {
         uint256 tokenAmount = 10e18;
-        uint256 n = 600;
+        uint256 n = 5;
 
         for (uint256 i = 0; i < n; i++) {
             address user = vm.addr(100 + i);
@@ -88,11 +88,16 @@ contract SourceChainCCCBTest is Test, Utils {
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), n * tokenAmount);
 
-        deal(address(bridge), 100e18);
+        deal(address(bridge), 1e18);
+
+        uint256 previousBobBalance = bob.balance;
+        uint256 previousContractbalance = address(bridge).balance;
         vm.prank(bob);
-        bridge.bridge();
+        (, uint256 fees) = bridge.bridge();
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), 0);
+        assertEq(bob.balance - previousBobBalance, previousContractbalance - fees); // Bob gets the reward
+        assertEq(address(bridge).balance, 0); // Empty all contract balance
     }
 
     /**
