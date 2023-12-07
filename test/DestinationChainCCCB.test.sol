@@ -20,10 +20,11 @@ contract DestinationChainCCCBTest is Test, Utils {
         vm.createSelectFork("avalancheFuji");
         bridge = new ExposedDestinationChainCCCB(
             routerAvalancheFuji,
-            ccipBnMAvalancheFuji,
-            chainIdEthereumSepolia,
-            sourceContractAddress // replace with source contract
+            chainIdEthereumSepolia
         );
+
+        bridge.setTokenAddress(ccipBnMAvalancheFuji);
+        bridge.setDestinationContract(sourceContractAddress);
 
         vm.label(routerAvalancheFuji, "Router Avalanche Fuji");
         vm.label(ccipBnMAvalancheFuji, "BnM token");

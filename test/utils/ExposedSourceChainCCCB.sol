@@ -7,11 +7,10 @@ import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.s
 contract ExposedSourceChainCCCB is SourceChainCCCB {
     constructor(
         address _router,
-        address _tokenAddress,
         uint64 _destinationChainSelector,
-        address _destinationContract,
-        uint256 _nativeTokenTax
-    ) SourceChainCCCB(_router, _tokenAddress, _destinationChainSelector, _destinationContract, _nativeTokenTax) {}
+        uint64 _currentChainSelector,
+        address _owner
+    ) SourceChainCCCB(_router, _destinationChainSelector, _currentChainSelector, _owner) {}
 
     function exposed_bridgeBalances(uint256 currentTokenAmount) public returns (bytes32, uint256) {
         return _bridgeBalances(currentTokenAmount);

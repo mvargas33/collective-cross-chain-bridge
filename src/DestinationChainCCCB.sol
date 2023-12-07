@@ -7,9 +7,9 @@ import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.s
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Withdraw} from "./utils/Withdraw.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Withdraw {
+contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
     using SafeERC20 for IERC20;
 
     ContractState public contractState;
@@ -23,18 +23,27 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Withdraw {
     mapping(uint256 => Round) public rounds;
     mapping(uint256 => bool) public successfulRounds;
 
-    constructor(address _router, address _tokenAddress, uint64 _destinationChainSelector, address _destinationContract)
+    constructor(address _router, uint64 _destinationChainSelector)
         CCIPReceiver(_router)
+        Ownable(msg.sender)
     {
         contractState = ContractState.BLOCKED;
-        tokenAddress = _tokenAddress;
         destinationChainSelector = _destinationChainSelector;
-        destinationContract = _destinationContract;
         currentRound = 0;
         currentTokenAmount = 0;
     }
 
     receive() external payable {}
+
+    /** Setters to use just after contract deployment */
+
+    function setTokenAddress(address _tokenAddress) external onlyOwner {
+      tokenAddress = _tokenAddress;
+    }
+
+    function setDestinationContract(address _destinationContract) external onlyOwner {
+      destinationContract = _destinationContract;
+    }
 
     /**
      * Receives the entire Round from the source chain. Saves the Round, pending balances and the total pending amount.
@@ -105,6 +114,22 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Withdraw {
         return router.ccipSend{value: fees}(destinationChainSelector, message);
     }
 
+    function getContractState() public view returns (IDestinationChainCCCB.ContractState) {
+        return contractState;
+    }
+
+    function getTokenAddress() public view returns (address) {
+        return tokenAddress;
+    }
+
+    function getDestinationChainSelector() external view returns (uint64) {
+        return destinationChainSelector;
+    }
+
+    function getDestinationContract() external view returns (address) {
+        return destinationContract;
+    }
+
     function getCurrentRoundId() public view returns (uint256) {
         return currentRound;
     }
@@ -124,12 +149,8 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Withdraw {
     function isRoundSuccessful(uint256 roundId) public view returns (bool) {
         return successfulRounds[roundId];
     }
-
-    function getContractState() public view returns (IDestinationChainCCCB.ContractState) {
-        return contractState;
-    }
-
-    function getTokenAddress() public view returns (address) {
-        return tokenAddress;
+    
+    function getContractTokenBalance() external view returns (uint256) {
+      return IERC20(tokenAddress).balanceOf(address(this));
     }
 }

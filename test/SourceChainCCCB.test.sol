@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Test, console2} from "forge-std/Test.sol";
+import {Test, console} from "forge-std/Test.sol";
 import {SourceChainCCCB} from "../src/SourceChainCCCB.sol";
 import {BasicTokenSender} from "../src/BasicTokenSender.sol";
 import {Utils} from "./utils/Utils.sol";
@@ -11,18 +11,22 @@ import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.s
 contract SourceChainCCCBTest is Test, Utils {
     SourceChainCCCB public bridge;
     BasicTokenSender public basicBridge;
-    address alice = vm.addr(0xa11ce);
-    address bob = vm.addr(0xb0b);
+    address alice = vm.addr(0xa11ce0000000dead);
+    address bob = vm.addr(0xb0b0000000dead);
+    address manager = vm.addr(0x81273);
 
     function setUp() public {
         vm.createSelectFork("ethereumSepolia");
         bridge = new SourceChainCCCB(
             routerEthereumSepolia,
-            ccipBnMEthereumSepolia,
             chainIdAvalancheFuji,
-            address(alice), // replace with destination contract
-            0 // reaplce wiht tax
+            chainIdEthereumSepolia,
+            manager
         );
+        vm.startPrank(manager);
+        bridge.setTokenAddress(ccipBnMEthereumSepolia);
+        bridge.setDestinationContract(address(alice));
+        vm.stopPrank();
 
         basicBridge = new BasicTokenSender(routerEthereumSepolia, linkEthereumSepolia);
 
@@ -35,21 +39,32 @@ contract SourceChainCCCBTest is Test, Utils {
      * One deposit cost 83_669 gas for 1 user [safeTransferFrom + push in array + write in mapping]
      * One brige for 1 user costs 303_600. But for 100 users it costs
      */
-    function test_deposit() public {
+    function test_deposit_and_bridge() public {
+        uint256 despoitTax = bridge.getDepositTax();
         uint256 tokenAmount = 10e18;
+        deal(alice, despoitTax);
         deal(ccipBnMEthereumSepolia, alice, tokenAmount);
 
         vm.startPrank(alice);
         IERC20(ccipBnMEthereumSepolia).approve(address(bridge), tokenAmount);
-        bridge.deposit(tokenAmount);
+        bridge.deposit{value: despoitTax}(tokenAmount);
         vm.stopPrank();
+
+        console.log(address(bridge).balance);
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), tokenAmount);
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(alice), 0);
+        assertEq(alice.balance, 0); // Use all tax
 
-        deal(address(bridge), 100e18);
+        uint256 expectedReward= bridge.getBridgeReward();
+        uint256 previousBobBalance = bob.balance;
+        console.log(bob.balance);
+
+        deal(address(bridge), 502449377777777); // Give some eth to be able to call destination chain
         vm.prank(bob);
         bridge.bridge();
+
+        assertEq(bob.balance - previousBobBalance, expectedReward);
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), 0);
     }
@@ -78,26 +93,31 @@ contract SourceChainCCCBTest is Test, Utils {
 
         for (uint256 i = 0; i < n; i++) {
             address user = vm.addr(100 + i);
+            uint256 tax = bridge.getDepositTax();
+            deal(user, 1e18);
             deal(ccipBnMEthereumSepolia, user, tokenAmount);
 
             vm.startPrank(user);
             IERC20(ccipBnMEthereumSepolia).approve(address(bridge), tokenAmount);
-            bridge.deposit(tokenAmount);
+            bridge.deposit{value: tax }(tokenAmount);
             vm.stopPrank();
         }
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), n * tokenAmount);
 
-        deal(address(bridge), 1e18);
-
         uint256 previousBobBalance = bob.balance;
         uint256 previousContractbalance = address(bridge).balance;
+        uint256 estimatedReward = bridge.getBridgeReward();
+        uint256 estimatedProtocolFees = bridge.getProtocolReward();
+        assertEq(previousContractbalance, estimatedReward + estimatedProtocolFees);
+
         vm.prank(bob);
-        (, uint256 fees) = bridge.bridge();
+        bridge.bridge();
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), 0);
-        assertEq(bob.balance - previousBobBalance, previousContractbalance - fees); // Bob gets the reward
+        assertEq(bob.balance - previousBobBalance, estimatedReward); // Bob gets the reward
         assertEq(address(bridge).balance, 0); // Empty all contract balance
+        assertEq(bridge.owner().balance, estimatedProtocolFees);
     }
 
     /**

@@ -8,42 +8,45 @@ import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Withdraw} from "./utils/Withdraw.sol";
+import {TaxManager} from "./TaxManager.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, Withdraw {
+contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
     using SafeERC20 for IERC20;
 
     ContractState public contractState;
     address public tokenAddress;
     uint64 public destinationChainSelector;
     address public destinationContract;
-    uint256 public nativeTokenTax;
 
     uint256 currentRound;
-    mapping(address => uint256) balances;
-    mapping(uint256 => Round) rounds;
-    mapping(uint256 => bool) successfulRounds;
+    mapping(address => uint256) public balances;
+    mapping(uint256 => Round) public rounds;
+    mapping(uint256 => bool) public successfulRounds;
 
     constructor(
         address _router,
-        address _tokenAddress,
         uint64 _destinationChainSelector,
-        address _destinationContract,
-        uint256 _nativeTokenTax
-    ) CCIPReceiver(_router) {
+        uint64 _currentChainSelector,
+        address _owner
+    ) CCIPReceiver(_router) TaxManager(_currentChainSelector, _owner) {
         contractState = ContractState.OPEN;
-        tokenAddress = _tokenAddress;
         destinationChainSelector = _destinationChainSelector;
-        destinationContract = _destinationContract;
-        nativeTokenTax = _nativeTokenTax;
         currentRound = 0;
         rounds[currentRound].roundId = 0;
-        // rounds[currentRound].participants.push(address(0));
-        balances[address(0)] = 0;
-        // rounds[currentRound].balances.pop();
-        // rounds[currentRound].participants.pop();
     }
 
     receive() external payable {}
+
+    /** Setters to use just after contract deployment */
+
+    function setTokenAddress(address _tokenAddress) external onlyOwner {
+      tokenAddress = _tokenAddress;
+    }
+
+    function setDestinationContract(address _destinationContract) external onlyOwner {
+      destinationContract = _destinationContract;
+    }
 
     /**
      * Deposit {tokenAddress} token via transferFrom. Then records the amount in local structs.
@@ -53,7 +56,7 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, Withdraw {
     function deposit(uint256 tokenAmount) public payable {
         require(contractState == ContractState.OPEN, "Wait for the next round");
         require(msg.sender != address(0));
-        require(msg.value >= nativeTokenTax, "Insuffitient tax");
+        require(msg.value >= getDepositTax(), "Insuffitient tax");
         require(balances[msg.sender] == 0, "You already entered this round, wait for the next one");
         require(tokenAmount > 0, "Amount should be greater than zero");
 
@@ -66,13 +69,14 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, Withdraw {
     /**
      * Anyone can call this function to end the current round and bridge the tokens in the contract.
      * The caller gets all native token present in the contract, collected through the collective
-     * {nativeTokenTax} that each participant gave over time. Blocks the contract until the message
+     * {depositTax} that each participant gave over time. Blocks the contract until the message
      * of sucess arrives from the destination chain.
      */
-    function bridge() external returns (bytes32 messageId, uint256 fees) {
+    function bridge() public returns (bytes32 messageId, uint256 fees) {
         require(contractState == ContractState.OPEN, "Wait for the next round");
         require(msg.sender != address(0));
         require(rounds[currentRound].participants.length > 0, "No participants yet");
+        require(address(this).balance >= getLastDestinationChainFees(), "Not enough gas to call ccip");
 
         uint256 currentTokenAmount = 0;
 
@@ -87,9 +91,8 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, Withdraw {
         contractState = ContractState.BLOCKED;
         (messageId, fees) = _bridgeBalances(currentTokenAmount);
 
-        // Pay back for the call
-        (bool success,) = payable(msg.sender).call{value: address(this).balance}("");
-        require(success, "Transfer ETH in contract failed");
+        // Pay rewards to protocol and caller
+        _payRewards(fees, owner(), msg.sender);
 
         return (messageId, fees);
     }
@@ -154,5 +157,61 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, Withdraw {
 
         currentRound += 1;
         contractState = ContractState.OPEN;
+    }
+
+    /** Getters */
+
+    function getContractState() external view returns (ContractState) {
+        return contractState;
+    }
+
+    function getTokenAddress() external view returns (address) {
+        return tokenAddress;
+    }
+
+    function getDestinationChainSelector() external view returns (uint64) {
+        return destinationChainSelector;
+    }
+
+    function getDestinationContract() external view returns (address) {
+        return destinationContract;
+    }
+
+    function getCurrentRoundId() external view returns (uint256) {
+        return currentRound;
+    }
+
+    function getCurrentTokenAmount() public view returns (uint256) {
+        uint256 currentTokenAmount = 0;
+
+        for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
+            currentTokenAmount += balances[rounds[currentRound].participants[i]];
+        }
+
+        return currentTokenAmount;
+    }
+
+    function getBalances(address user) public view returns (uint256) {
+        return balances[user];
+    }
+
+    function getRound(uint256 roundId) public view returns (Round memory round) {
+        return rounds[roundId];
+    }
+
+    function isRoundSuccessful(uint256 roundId) external view returns (bool) {
+        return successfulRounds[roundId];
+    }
+
+    function getContractTokenBalance() external view returns (uint256) {
+      return IERC20(tokenAddress).balanceOf(address(this));
+    }
+
+    function getBridgeReward() external view returns (uint256) {
+      return ((100 - getProtocolFee()) * address(this).balance) / 100;
+    }
+
+    function getProtocolReward() external view returns (uint256) {
+      return (getProtocolFee() * address(this).balance) / 100;
     }
 }
