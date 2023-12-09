@@ -10,6 +10,7 @@ contract TaxManager is Ownable {
 
     uint256 public protocolFee;
     uint256 public gasLimitPerUser;
+    uint256 public depositTax;
     uint64 public currentChainSelector;
     mapping(uint64 => uint256) gasPricePerChainSelector;
     AggregatorV3Interface ethereumMainnetPriceFeed;
@@ -20,11 +21,12 @@ contract TaxManager is Ownable {
     constructor(uint64 _currentChainSelector, address _owner) Ownable(_owner) {
         currentChainSelector = _currentChainSelector;
         protocolFee = 10; // 10% over tips
-        gasLimitPerUser = 45000; // Average of bridge cost > 15 users
+        gasLimitPerUser = 45_000; // Average of bridge cost > 15 users
         gasPricePerChainSelector[ETH_SEPOLIA_CHAIN_SELECTOR] = 80_000_000_000; // 80 Gwei
         ethereumMainnetPriceFeed = AggregatorV3Interface(0x169E633A2D1E6c10dD91238Ba11c4A708dfEF37C);
         destinationChainFees = 500_000_000_000_000; // Gas needed for ccpiSend
         accumProtocolFees = 0;
+        depositTax = (gasLimitPerUser * (100 + protocolFee)) * gasPricePerChainSelector[ETH_SEPOLIA_CHAIN_SELECTOR] / 100;
     }
 
     function claimProtocolRewards() external onlyOwner {
@@ -59,12 +61,14 @@ contract TaxManager is Ownable {
         callerRewards[msg.sender] += remainingReward;
     }
 
-    function setProtocolFee(uint256 _newGasLimit) external onlyOwner {
-        protocolFee = _newGasLimit;
+    function setProtocolFee(uint256 _newProtocolFee) external onlyOwner {
+        protocolFee = _newProtocolFee;
+        depositTax = (gasLimitPerUser * (100 + _newProtocolFee)) * gasPricePerChainSelector[currentChainSelector] / 100;
     }
 
     function setGasLimitPerUser(uint256 _newGasLimit) external onlyOwner {
         gasLimitPerUser = _newGasLimit;
+        depositTax = (_newGasLimit * (100 + protocolFee)) * gasPricePerChainSelector[currentChainSelector] / 100;
     }
 
     function setGasPricePerChainSelector(uint64 _chainSelector, uint256 _newGasPrice) external onlyOwner {
@@ -104,14 +108,17 @@ contract TaxManager is Ownable {
      * Adds 10% more to the computed value, as a protocol fee that is then deducted in the bridge() call
      */
     function getDepositTax() public view returns (uint256) {
-        uint256 finalGasLimit = (gasLimitPerUser * (100 + protocolFee)) / 100; // Add 10% as protocol fee
+      return depositTax;
+    }
 
-        if (currentChainSelector == ETH_CHAIN_SELECTOR) {
-            (, int256 answer,,,) = ethereumMainnetPriceFeed.latestRoundData();
-            return (finalGasLimit * uint256(answer));
-        }
+    /**
+     * Only makes sense to eth mainnet: ETH_CHAIN_SELECTOR
+     */
+    function getDynamicDepostiTax() public view returns (uint256) {
+      uint256 finalGasLimit = (gasLimitPerUser * (100 + protocolFee)) / 100; // Add 10% as protocol fee
 
-        return finalGasLimit * gasPricePerChainSelector[currentChainSelector];
+      (, int256 answer,,,) = ethereumMainnetPriceFeed.latestRoundData();
+      return (finalGasLimit * uint256(answer));
     }
 
     function getDestinationChainFees() public view returns (uint256) {
