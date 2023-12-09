@@ -26,23 +26,24 @@ contract TaxManager is Ownable {
         ethereumMainnetPriceFeed = AggregatorV3Interface(0x169E633A2D1E6c10dD91238Ba11c4A708dfEF37C);
         destinationChainFees = 500_000_000_000_000; // Gas needed for ccpiSend
         accumProtocolFees = 0;
-        depositTax = (gasLimitPerUser * (100 + protocolFee)) * gasPricePerChainSelector[ETH_SEPOLIA_CHAIN_SELECTOR] / 100;
+        depositTax =
+            (gasLimitPerUser * (100 + protocolFee)) * gasPricePerChainSelector[ETH_SEPOLIA_CHAIN_SELECTOR] / 100;
     }
 
     function claimProtocolRewards() external onlyOwner {
-      (bool sucecss,) = payable(owner()).call{value: accumProtocolFees}("");
-      require(sucecss, "Transfer ETH to protocol failed");
+        (bool sucecss,) = payable(owner()).call{value: accumProtocolFees}("");
+        require(sucecss, "Transfer ETH to protocol failed");
 
-      accumProtocolFees = 0;
+        accumProtocolFees = 0;
     }
 
     function claimRewards() public {
-      require(callerRewards[msg.sender] > 0, 'You dont have rewards');
+        require(callerRewards[msg.sender] > 0, "You dont have rewards");
 
-      (bool success,) = payable(msg.sender).call{value: callerRewards[msg.sender]}("");
-      require(success, "Transfer reward to user failed");
+        (bool success,) = payable(msg.sender).call{value: callerRewards[msg.sender]}("");
+        require(success, "Transfer reward to user failed");
 
-      callerRewards[msg.sender] = 0;
+        callerRewards[msg.sender] = 0;
     }
 
     function _payRewards() internal {
@@ -55,7 +56,7 @@ contract TaxManager is Ownable {
         // Reward the protocol
         uint256 protocolAmount = (protocolFee * (remainingBalance - destinationChainFees)) / 100;
         accumProtocolFees += protocolAmount;
-        
+
         // Reward the caller
         uint256 remainingReward = address(this).balance - destinationChainFees - accumProtocolFees;
         callerRewards[msg.sender] += remainingReward;
@@ -78,7 +79,7 @@ contract TaxManager is Ownable {
     /**
      * Function that changes the estimated gas limit on destination chain. Dont use in bridge() to save gas
      */
-    function setDestinationChainFees(uint256 _fees) external onlyOwner() returns (uint256) {
+    function setDestinationChainFees(uint256 _fees) external onlyOwner returns (uint256) {
         destinationChainFees = _fees;
         return _fees;
     }
@@ -108,17 +109,17 @@ contract TaxManager is Ownable {
      * Adds 10% more to the computed value, as a protocol fee that is then deducted in the bridge() call
      */
     function getDepositTax() public view returns (uint256) {
-      return depositTax;
+        return depositTax;
     }
 
     /**
      * Only makes sense to eth mainnet: ETH_CHAIN_SELECTOR
      */
     function getDynamicDepostiTax() public view returns (uint256) {
-      uint256 finalGasLimit = (gasLimitPerUser * (100 + protocolFee)) / 100; // Add 10% as protocol fee
+        uint256 finalGasLimit = (gasLimitPerUser * (100 + protocolFee)) / 100; // Add 10% as protocol fee
 
-      (, int256 answer,,,) = ethereumMainnetPriceFeed.latestRoundData();
-      return (finalGasLimit * uint256(answer));
+        (, int256 answer,,,) = ethereumMainnetPriceFeed.latestRoundData();
+        return (finalGasLimit * uint256(answer));
     }
 
     function getDestinationChainFees() public view returns (uint256) {

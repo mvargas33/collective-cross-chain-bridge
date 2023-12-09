@@ -17,7 +17,9 @@ contract SourceChainCCCBTest is Test, Utils {
 
     function setUp() public {
         vm.createSelectFork("ethereumSepolia");
-        bridge = new SourceChainCCCB(routerEthereumSepolia, chainIdAvalancheFuji, chainIdEthereumSepolia, manager, ccipBnMEthereumSepolia);
+        bridge = new SourceChainCCCB(
+            routerEthereumSepolia, chainIdAvalancheFuji, chainIdEthereumSepolia, manager, ccipBnMEthereumSepolia
+        );
         vm.startPrank(manager);
         // bridge.setTokenAddress(ccipBnMEthereumSepolia);
         bridge.setDestinationContract(address(alice));
@@ -72,31 +74,12 @@ contract SourceChainCCCBTest is Test, Utils {
     }
 
     /**
-     * 2 users = 325_904 = 162_952 per user
-     * 5 users = 403_918 = 80_783 per user + value: 401045177777777
-     * 10 users = 533_949 = 53_394 per user + value: 402175844444444
-     * 15 users = 663984 = 44_265 per user + value: 403306511111111
-     * 20 users = 794027 = 39_701 per user + value: 404437177777777
-     * 30 users = 1054130 = 35_137 per user
-     * 40 users = 1314259 = 32_856 per user
-     * 50 users = 1574414 = 31_488 per user
-     * 75 users = 2224905 = 29_665 per user
-     * 100 users = 2_875_555 = 28_755 gas per user /+/ value: 0.000_422_527_844_444_444 = 0.000000_422_527_844_444 per user
-     * 125 users = 3_526_361 = 28_210 per user
-     * 150 users = 4_177_324 = 27_848 per user
-     * 200 users = 5_479_716 = 27_398 per user
-     * 300 users = 8_086_378 = 26_954 per user
-     * 500 users = 13_307_200 = 26_614 per user
-     * 1_000 users = ERROR 125 KB [MAX is 50 KB]
-     */
-
-    /**
      * forge-config: default.fuzz.runs = 2
      * forge-config: default.fuzz.max-test-rejects = 0
      */
     function test_collectiveDeposit() public {
         // vm.assume(n_users > 5);
-        uint16 n_users = 30;
+        uint16 n_users = 775;
         uint256 initialContractbalance = address(bridge).balance;
 
         uint256 tokenAmount = 10e18;

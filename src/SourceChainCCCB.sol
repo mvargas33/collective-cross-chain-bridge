@@ -24,10 +24,13 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
     mapping(address => uint256) public balances;
     mapping(uint256 => bool) public successfulRounds;
 
-    constructor(address _router, uint64 _destinationChainSelector, uint64 _currentChainSelector, address _owner, address _tokenAddress)
-        CCIPReceiver(_router)
-        TaxManager(_currentChainSelector, _owner)
-    {
+    constructor(
+        address _router,
+        uint64 _destinationChainSelector,
+        uint64 _currentChainSelector,
+        address _owner,
+        address _tokenAddress
+    ) CCIPReceiver(_router) TaxManager(_currentChainSelector, _owner) {
         contractState = ContractState.OPEN;
         destinationChainSelector = _destinationChainSelector;
         currentRoundId = 0;
@@ -89,15 +92,13 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
     function _bridgeBalances() internal returns (bytes32 messageId, uint256 fees) {
         (Round memory currentRound, uint256 currentTokenAmount) = _getCurrentRoundAndTokenAmount();
         require(IERC20(tokenAddress).balanceOf(address(this)) >= currentTokenAmount, "Corrupted contract");
-        
+
         Client.EVMTokenAmount memory tokenAmount =
             Client.EVMTokenAmount({token: address(tokenAddress), amount: currentTokenAmount});
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = tokenAmount;
 
         IRouterClient router = IRouterClient(this.getRouter());
-
-        
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(destinationContract),
@@ -140,7 +141,9 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
 
         for (uint256 i = 0; i < participants.length;) {
             balances[participants[i]] = 0;
-            unchecked{ i++; }
+            unchecked {
+                i++;
+            }
         }
 
         delete participants;
@@ -174,12 +177,14 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
     }
 
     function getBalancesAsArray() public view returns (uint256[] memory balancesArray) {
-      balancesArray = new uint256[](participants.length);
+        balancesArray = new uint256[](participants.length);
 
-      for (uint256 i = 0; i < participants.length;) {
-        balancesArray[i] = balances[participants[i]];
-        unchecked{ i++; }
-      }
+        for (uint256 i = 0; i < participants.length;) {
+            balancesArray[i] = balances[participants[i]];
+            unchecked {
+                i++;
+            }
+        }
     }
 
     function getCurrentTokenAmount() public view returns (uint256 currentTokenAmount) {
@@ -187,7 +192,9 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
 
         for (uint256 i = 0; i < participants.length;) {
             currentTokenAmount += balances[participants[i]];
-            unchecked{ i++; }
+            unchecked {
+                i++;
+            }
         }
     }
 
@@ -197,29 +204,27 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
 
     function getCurrentRound() public view returns (Round memory currentRound) {
         uint256[] memory balancesArray = getBalancesAsArray();
-        
-        currentRound = Round({
-          roundId: currentRoundId,
-          balances: balancesArray,
-          participants: participants
-        });
+
+        currentRound = Round({roundId: currentRoundId, balances: balancesArray, participants: participants});
     }
 
-    function _getCurrentRoundAndTokenAmount() internal view returns (Round memory currentRound, uint256 currentTokenAmount) {
-      currentTokenAmount = 0;
-      uint256[] memory balancesArray = new uint256[](participants.length);
+    function _getCurrentRoundAndTokenAmount()
+        internal
+        view
+        returns (Round memory currentRound, uint256 currentTokenAmount)
+    {
+        currentTokenAmount = 0;
+        uint256[] memory balancesArray = new uint256[](participants.length);
 
-      for (uint16 i = 0; i < participants.length;) {
-        currentTokenAmount += balances[participants[i]];
-        balancesArray[i] = balances[participants[i]];
-        unchecked{ i++; }
-      }
+        for (uint16 i = 0; i < participants.length;) {
+            currentTokenAmount += balances[participants[i]];
+            balancesArray[i] = balances[participants[i]];
+            unchecked {
+                i++;
+            }
+        }
 
-      currentRound = Round({
-        roundId: currentRoundId,
-        balances: balancesArray,
-        participants: participants
-      });
+        currentRound = Round({roundId: currentRoundId, balances: balancesArray, participants: participants});
     }
 
     function isRoundSuccessful(uint256 roundId) external view returns (bool) {
