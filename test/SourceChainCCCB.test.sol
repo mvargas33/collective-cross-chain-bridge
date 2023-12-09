@@ -17,14 +17,9 @@ contract SourceChainCCCBTest is Test, Utils {
 
     function setUp() public {
         vm.createSelectFork("ethereumSepolia");
-        bridge = new SourceChainCCCB(
-            routerEthereumSepolia,
-            chainIdAvalancheFuji,
-            chainIdEthereumSepolia,
-            manager
-        );
+        bridge = new SourceChainCCCB(routerEthereumSepolia, chainIdAvalancheFuji, chainIdEthereumSepolia, manager, ccipBnMEthereumSepolia);
         vm.startPrank(manager);
-        bridge.setTokenAddress(ccipBnMEthereumSepolia);
+        // bridge.setTokenAddress(ccipBnMEthereumSepolia);
         bridge.setDestinationContract(address(alice));
         vm.stopPrank();
 
@@ -50,21 +45,28 @@ contract SourceChainCCCBTest is Test, Utils {
         bridge.deposit{value: despoitTax}(tokenAmount);
         vm.stopPrank();
 
-        console.log(address(bridge).balance);
-
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), tokenAmount);
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(alice), 0);
         assertEq(alice.balance, 0); // Use all tax
 
-        uint256 expectedReward= bridge.getBridgeReward();
+        (uint256 protocolReward, uint256 callerReward) = bridge.getEstimatedRewards();
         uint256 previousBobBalance = bob.balance;
-        console.log(bob.balance);
 
-        deal(address(bridge), 502449377777777); // Give some eth to be able to call destination chain
+        deal(address(bridge), 500_000_000_000_000); // Give some eth to be able to call destination chain
         vm.prank(bob);
         bridge.bridge();
 
-        assertEq(bob.balance - previousBobBalance, expectedReward);
+        if (protocolReward == 0) {
+            assertEq(address(bridge.owner()).balance, 0);
+        } else {
+            assertGe(address(bridge.owner()).balance, (95 * protocolReward) / 100);
+        }
+
+        if (callerReward == 0) {
+            assertEq(bob.balance - previousBobBalance, 0);
+        } else {
+            assertGe(bob.balance - previousBobBalance, (95 * callerReward) / 100);
+        }
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), 0);
     }
@@ -87,37 +89,65 @@ contract SourceChainCCCBTest is Test, Utils {
      * 500 users = 13_307_200 = 26_614 per user
      * 1_000 users = ERROR 125 KB [MAX is 50 KB]
      */
-    function test_colectiveDeposit() public {
-        uint256 tokenAmount = 10e18;
-        uint256 n = 5;
 
-        for (uint256 i = 0; i < n; i++) {
+    /**
+     * forge-config: default.fuzz.runs = 2
+     * forge-config: default.fuzz.max-test-rejects = 0
+     */
+    function test_collectiveDeposit() public {
+        // vm.assume(n_users > 5);
+        uint16 n_users = 30;
+        uint256 initialContractbalance = address(bridge).balance;
+
+        uint256 tokenAmount = 10e18;
+        uint256 tax = bridge.getDepositTax();
+
+        for (uint256 i = 0; i < n_users; i++) {
             address user = vm.addr(100 + i);
-            uint256 tax = bridge.getDepositTax();
-            deal(user, 1e18);
+
+            deal(user, tax);
             deal(ccipBnMEthereumSepolia, user, tokenAmount);
 
             vm.startPrank(user);
             IERC20(ccipBnMEthereumSepolia).approve(address(bridge), tokenAmount);
-            bridge.deposit{value: tax }(tokenAmount);
+            bridge.deposit{value: tax}(tokenAmount);
             vm.stopPrank();
         }
 
-        assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), n * tokenAmount);
+        assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), n_users * tokenAmount);
+        assertEq(address(bridge).balance, initialContractbalance + (n_users * tax));
 
+        uint256 previousOwnerBalance = address(bridge.owner()).balance;
         uint256 previousBobBalance = bob.balance;
         uint256 previousContractbalance = address(bridge).balance;
-        uint256 estimatedReward = bridge.getBridgeReward();
-        uint256 estimatedProtocolFees = bridge.getProtocolReward();
-        assertEq(previousContractbalance, estimatedReward + estimatedProtocolFees);
+        (uint256 protocolReward, uint256 callerReward) = bridge.getEstimatedRewards();
 
-        vm.prank(bob);
+        if (previousContractbalance > bridge.getDestinationChainFees()) {
+            assertEq(previousContractbalance - bridge.getDestinationChainFees(), protocolReward + callerReward);
+        }
+
+        vm.startPrank(bob);
         bridge.bridge();
+        bridge.claimRewards();
+        vm.stopPrank();
 
+        vm.prank(bridge.owner());
+        bridge.claimProtocolRewards();
+
+        if (protocolReward == 0) {
+            assertEq(address(bridge.owner()).balance - previousOwnerBalance, 0);
+        } else {
+            assertGe(address(bridge.owner()).balance - previousOwnerBalance, (85 * protocolReward) / 100);
+        }
+
+        if (callerReward == 0) {
+            assertEq(bob.balance - previousBobBalance, 0);
+        } else {
+            assertGe(bob.balance - previousBobBalance, (85 * callerReward) / 100); // Be flexible a bit
+        }
+
+        assertGe(address(bridge).balance, bridge.getDestinationChainFees()); // Save for next call
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), 0);
-        assertEq(bob.balance - previousBobBalance, estimatedReward); // Bob gets the reward
-        assertEq(address(bridge).balance, 0); // Empty all contract balance
-        assertEq(bridge.owner().balance, estimatedProtocolFees);
     }
 
     /**

@@ -23,10 +23,7 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
     mapping(uint256 => Round) public rounds;
     mapping(uint256 => bool) public successfulRounds;
 
-    constructor(address _router, uint64 _destinationChainSelector)
-        CCIPReceiver(_router)
-        Ownable(msg.sender)
-    {
+    constructor(address _router, uint64 _destinationChainSelector) CCIPReceiver(_router) Ownable(msg.sender) {
         contractState = ContractState.BLOCKED;
         destinationChainSelector = _destinationChainSelector;
         currentRound = 0;
@@ -35,14 +32,16 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
 
     receive() external payable {}
 
-    /** Setters to use just after contract deployment */
+    /**
+     * Setters to use just after contract deployment
+     */
 
     function setTokenAddress(address _tokenAddress) external onlyOwner {
-      tokenAddress = _tokenAddress;
+        tokenAddress = _tokenAddress;
     }
 
     function setDestinationContract(address _destinationContract) external onlyOwner {
-      destinationContract = _destinationContract;
+        destinationContract = _destinationContract;
     }
 
     /**
@@ -149,8 +148,8 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
     function isRoundSuccessful(uint256 roundId) public view returns (bool) {
         return successfulRounds[roundId];
     }
-    
+
     function getContractTokenBalance() external view returns (uint256) {
-      return IERC20(tokenAddress).balanceOf(address(this));
+        return IERC20(tokenAddress).balanceOf(address(this));
     }
 }

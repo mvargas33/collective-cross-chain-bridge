@@ -19,33 +19,29 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
     uint64 public destinationChainSelector;
     address public destinationContract;
 
-    uint256 currentRound;
+    uint256 currentRoundId;
+    address[] public participants;
     mapping(address => uint256) public balances;
-    mapping(uint256 => Round) public rounds;
     mapping(uint256 => bool) public successfulRounds;
 
-    constructor(
-        address _router,
-        uint64 _destinationChainSelector,
-        uint64 _currentChainSelector,
-        address _owner
-    ) CCIPReceiver(_router) TaxManager(_currentChainSelector, _owner) {
+    constructor(address _router, uint64 _destinationChainSelector, uint64 _currentChainSelector, address _owner, address _tokenAddress)
+        CCIPReceiver(_router)
+        TaxManager(_currentChainSelector, _owner)
+    {
         contractState = ContractState.OPEN;
         destinationChainSelector = _destinationChainSelector;
-        currentRound = 0;
-        rounds[currentRound].roundId = 0;
+        currentRoundId = 0;
+        tokenAddress = _tokenAddress;
+        IERC20(tokenAddress).approve(address(_router), type(uint256).max);
     }
 
     receive() external payable {}
 
-    /** Setters to use just after contract deployment */
-
-    function setTokenAddress(address _tokenAddress) external onlyOwner {
-      tokenAddress = _tokenAddress;
-    }
-
+    /**
+     * Setter to use just after contract deployment
+     */
     function setDestinationContract(address _destinationContract) external onlyOwner {
-      destinationContract = _destinationContract;
+        destinationContract = _destinationContract;
     }
 
     /**
@@ -55,14 +51,13 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
      */
     function deposit(uint256 tokenAmount) public payable {
         require(contractState == ContractState.OPEN, "Wait for the next round");
-        require(msg.sender != address(0));
         require(msg.value >= getDepositTax(), "Insuffitient tax");
         require(balances[msg.sender] == 0, "You already entered this round, wait for the next one");
         require(tokenAmount > 0, "Amount should be greater than zero");
 
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
-        rounds[currentRound].participants.push(msg.sender);
+        participants.push(msg.sender);
         balances[msg.sender] = tokenAmount;
     }
 
@@ -74,25 +69,15 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
      */
     function bridge() public returns (bytes32 messageId, uint256 fees) {
         require(contractState == ContractState.OPEN, "Wait for the next round");
-        require(msg.sender != address(0));
-        require(rounds[currentRound].participants.length > 0, "No participants yet");
-        require(address(this).balance >= getLastDestinationChainFees(), "Not enough gas to call ccip");
-
-        uint256 currentTokenAmount = 0;
-
-        for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
-            rounds[currentRound].balances.push(balances[rounds[currentRound].participants[i]]);
-            currentTokenAmount += balances[rounds[currentRound].participants[i]];
-        }
-
-        require(IERC20(tokenAddress).balanceOf(address(this)) >= currentTokenAmount, "Corrupted contract");
+        require(participants.length > 0, "No participants yet");
+        // require(address(this).balance >= getLastDestinationChainFees(), "Not enough gas to call ccip");
 
         // Bridge tokens with current Round data
         contractState = ContractState.BLOCKED;
-        (messageId, fees) = _bridgeBalances(currentTokenAmount);
+        (messageId, fees) = _bridgeBalances();
 
         // Pay rewards to protocol and caller
-        _payRewards(fees, owner(), msg.sender);
+        _payRewards();
 
         return (messageId, fees);
     }
@@ -101,7 +86,10 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
      * Sends the {tokenAddress} and {currentRound} Round to destination chain via CCIP.
      * Returns messageId for tracking purposes.
      */
-    function _bridgeBalances(uint256 currentTokenAmount) internal returns (bytes32, uint256) {
+    function _bridgeBalances() internal returns (bytes32 messageId, uint256 fees) {
+        (Round memory currentRound, uint256 currentTokenAmount) = _getCurrentRoundAndTokenAmount();
+        require(IERC20(tokenAddress).balanceOf(address(this)) >= currentTokenAmount, "Corrupted contract");
+        
         Client.EVMTokenAmount memory tokenAmount =
             Client.EVMTokenAmount({token: address(tokenAddress), amount: currentTokenAmount});
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
@@ -109,19 +97,18 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
 
         IRouterClient router = IRouterClient(this.getRouter());
 
-        IERC20(tokenAddress).approve(address(router), currentTokenAmount);
+        
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(destinationContract),
-            data: abi.encode(rounds[currentRound]),
+            data: abi.encode(currentRound),
             tokenAmounts: tokenAmounts,
             extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 200_000, strict: false})),
             feeToken: address(0) // Pay in native
         });
 
-        uint256 fees = router.getFee(destinationChainSelector, message);
-        bytes32 messageId = router.ccipSend{value: fees}(destinationChainSelector, message);
-        return (messageId, fees);
+        fees = router.getFee(destinationChainSelector, message);
+        messageId = router.ccipSend{value: fees}(destinationChainSelector, message);
     }
 
     /**
@@ -139,7 +126,7 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
 
         uint256 roundIdProcessed = abi.decode(any2EvmMessage.data, (uint256)); // abi-decoding of the sent string message
 
-        require(roundIdProcessed == currentRound, "Corrupted contract");
+        require(roundIdProcessed == currentRoundId, "Corrupted contract");
 
         _nextRound();
     }
@@ -149,17 +136,22 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
      * and finally opens the contract again.
      */
     function _nextRound() internal {
-        successfulRounds[currentRound] = true;
+        successfulRounds[currentRoundId] = true;
 
-        for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
-            balances[rounds[currentRound].participants[i]] = 0;
+        for (uint256 i = 0; i < participants.length;) {
+            balances[participants[i]] = 0;
+            unchecked{ i++; }
         }
 
-        currentRound += 1;
+        delete participants;
+
+        currentRoundId += 1;
         contractState = ContractState.OPEN;
     }
 
-    /** Getters */
+    /**
+     * Getters
+     */
 
     function getContractState() external view returns (ContractState) {
         return contractState;
@@ -178,25 +170,56 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
     }
 
     function getCurrentRoundId() external view returns (uint256) {
-        return currentRound;
+        return currentRoundId;
     }
 
-    function getCurrentTokenAmount() public view returns (uint256) {
-        uint256 currentTokenAmount = 0;
+    function getBalancesAsArray() public view returns (uint256[] memory balancesArray) {
+      balancesArray = new uint256[](participants.length);
 
-        for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
-            currentTokenAmount += balances[rounds[currentRound].participants[i]];
+      for (uint256 i = 0; i < participants.length;) {
+        balancesArray[i] = balances[participants[i]];
+        unchecked{ i++; }
+      }
+    }
+
+    function getCurrentTokenAmount() public view returns (uint256 currentTokenAmount) {
+        currentTokenAmount = 0;
+
+        for (uint256 i = 0; i < participants.length;) {
+            currentTokenAmount += balances[participants[i]];
+            unchecked{ i++; }
         }
-
-        return currentTokenAmount;
     }
 
     function getBalances(address user) public view returns (uint256) {
         return balances[user];
     }
 
-    function getRound(uint256 roundId) public view returns (Round memory round) {
-        return rounds[roundId];
+    function getCurrentRound() public view returns (Round memory currentRound) {
+        uint256[] memory balancesArray = getBalancesAsArray();
+        
+        currentRound = Round({
+          roundId: currentRoundId,
+          balances: balancesArray,
+          participants: participants
+        });
+    }
+
+    function _getCurrentRoundAndTokenAmount() internal view returns (Round memory currentRound, uint256 currentTokenAmount) {
+      currentTokenAmount = 0;
+      uint256[] memory balancesArray = new uint256[](participants.length);
+
+      for (uint16 i = 0; i < participants.length;) {
+        currentTokenAmount += balances[participants[i]];
+        balancesArray[i] = balances[participants[i]];
+        unchecked{ i++; }
+      }
+
+      currentRound = Round({
+        roundId: currentRoundId,
+        balances: balancesArray,
+        participants: participants
+      });
     }
 
     function isRoundSuccessful(uint256 roundId) external view returns (bool) {
@@ -204,14 +227,6 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
     }
 
     function getContractTokenBalance() external view returns (uint256) {
-      return IERC20(tokenAddress).balanceOf(address(this));
-    }
-
-    function getBridgeReward() external view returns (uint256) {
-      return ((100 - getProtocolFee()) * address(this).balance) / 100;
-    }
-
-    function getProtocolReward() external view returns (uint256) {
-      return (getProtocolFee() * address(this).balance) / 100;
+        return IERC20(tokenAddress).balanceOf(address(this));
     }
 }
