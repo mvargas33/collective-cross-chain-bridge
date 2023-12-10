@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache License 2.0
 pragma solidity 0.8.20;
 
 import {SourceChainCCCB} from "../../src/SourceChainCCCB.sol";

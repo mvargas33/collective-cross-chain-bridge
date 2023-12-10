@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache License 2.0
 pragma solidity 0.8.20;
 
 import "forge-std/Script.sol";
@@ -22,5 +22,11 @@ contract DeployFuji is Script, Utils {
         vm.stopBroadcast();
     }
 
-    function setDestinationContract() external {}
+    function setDestinationContract() external {
+        // address sepoliaContract = '';
+        // uint256 senderPrivateKey = vm.envUint("PRIVATE_KEY");
+        // vm.startBroadcast(senderPrivateKey);
+
+        // bridge.setDestinationContract(sepoliaContract);
+    }
 }
