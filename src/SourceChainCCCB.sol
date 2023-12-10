@@ -43,6 +43,11 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
     /**
      * Setter to use just after contract deployment
      */
+
+    function setTokenAddress(address _tokenAddress) external onlyOwner {
+        tokenAddress = _tokenAddress;
+    }
+
     function setDestinationContract(address _destinationContract) external onlyOwner {
         destinationContract = _destinationContract;
     }

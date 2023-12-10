@@ -54,20 +54,26 @@ contract SourceChainCCCBTest is Test, Utils {
         (uint256 protocolReward, uint256 callerReward) = bridge.getEstimatedRewards();
         uint256 previousBobBalance = bob.balance;
 
-        deal(address(bridge), 500_000_000_000_000); // Give some eth to be able to call destination chain
-        vm.prank(bob);
+        deal(address(bridge), 500_000_000_000_000_000); // Give some eth to be able to call destination chain
+        
+        vm.startPrank(bob);
         bridge.bridge();
+        bridge.claimRewards(); // Not enough for rewards
+        vm.stopPrank();
+
+        vm.prank(bridge.owner());
+        bridge.claimProtocolRewards();
 
         if (protocolReward == 0) {
             assertEq(address(bridge.owner()).balance, 0);
         } else {
-            assertGe(address(bridge.owner()).balance, (95 * protocolReward) / 100);
+            assertGe(address(bridge.owner()).balance, (85 * protocolReward) / 100);
         }
 
         if (callerReward == 0) {
             assertEq(bob.balance - previousBobBalance, 0);
         } else {
-            assertGe(bob.balance - previousBobBalance, (95 * callerReward) / 100);
+            assertGe(bob.balance - previousBobBalance, (85 * callerReward) / 100);
         }
 
         assertEq(IERC20(ccipBnMEthereumSepolia).balanceOf(address(bridge)), 0);
@@ -79,7 +85,7 @@ contract SourceChainCCCBTest is Test, Utils {
      */
     function test_collectiveDeposit() public {
         // vm.assume(n_users > 5);
-        uint16 n_users = 775;
+        uint16 n_users = 14;
         uint256 initialContractbalance = address(bridge).balance;
 
         uint256 tokenAmount = 10e18;

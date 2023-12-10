@@ -5,8 +5,8 @@ import {DestinationChainCCCB} from "../../src/DestinationChainCCCB.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 
 contract ExposedDestinationChainCCCB is DestinationChainCCCB {
-    constructor(address _router, uint64 _destinationChainSelector)
-        DestinationChainCCCB(_router, _destinationChainSelector)
+    constructor(address _router, uint64 _destinationChainSelector, address _owner, address _tokenAddress)
+        DestinationChainCCCB(_router, _destinationChainSelector, _owner, _tokenAddress)
     {}
 
     function exposed_ccipReceive(Client.Any2EVMMessage memory any2EvmMessage) public {

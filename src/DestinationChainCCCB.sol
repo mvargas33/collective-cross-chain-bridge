@@ -23,11 +23,15 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
     mapping(uint256 => Round) public rounds;
     mapping(uint256 => bool) public successfulRounds;
 
-    constructor(address _router, uint64 _destinationChainSelector) CCIPReceiver(_router) Ownable(msg.sender) {
+    constructor(address _router, uint64 _destinationChainSelector, address _manager, address _tokenAddress)
+        CCIPReceiver(_router)
+        Ownable(_manager)
+    {
         contractState = ContractState.BLOCKED;
         destinationChainSelector = _destinationChainSelector;
         currentRound = 0;
         currentTokenAmount = 0;
+        tokenAddress = _tokenAddress;
     }
 
     receive() external payable {}

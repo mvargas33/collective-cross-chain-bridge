@@ -3,21 +3,20 @@ pragma solidity 0.8.20;
 
 import "forge-std/Script.sol";
 import {Utils} from "../test/utils/Utils.sol";
-import {SourceChainCCCB} from "../src/SourceChainCCCB.sol";
+import {DestinationChainCCCB} from "../src/DestinationChainCCCB.sol";
 
 interface ICCIPToken {
     function drip(address to) external;
 }
 
-contract DeploySepolia is Script, Utils {
+contract DeployFuji is Script, Utils {
     function deploySourceContract() external {
         uint256 senderPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(senderPrivateKey);
         address manager = vm.addr(senderPrivateKey);
 
-        SourceChainCCCB bridge = new SourceChainCCCB(
-            routerEthereumSepolia, chainIdAvalancheFuji, chainIdEthereumSepolia, manager, ccipBnMEthereumSepolia
-        );
+        DestinationChainCCCB bridge =
+            new DestinationChainCCCB(routerAvalancheFuji, chainIdEthereumSepolia, ccipBnMAvalancheFuji, manager);
         // bridge.setDestinationContract(address(alice));
 
         vm.stopBroadcast();

@@ -21,7 +21,7 @@ contract TaxManager is Ownable {
     constructor(uint64 _currentChainSelector, address _owner) Ownable(_owner) {
         currentChainSelector = _currentChainSelector;
         protocolFee = 10; // 10% over tips
-        gasLimitPerUser = 45_000; // Average of bridge cost > 15 users
+        gasLimitPerUser = 65_000; // Average of bridge cost > 15 users
         gasPricePerChainSelector[ETH_SEPOLIA_CHAIN_SELECTOR] = 80_000_000_000; // 80 Gwei
         ethereumMainnetPriceFeed = AggregatorV3Interface(0x169E633A2D1E6c10dD91238Ba11c4A708dfEF37C);
         destinationChainFees = 500_000_000_000_000; // Gas needed for ccpiSend

@@ -15,12 +15,13 @@ contract DestinationChainCCCBTest is Test, Utils {
     address bob = vm.addr(0xb0b);
     address carl = vm.addr(0xca41);
     address sourceContractAddress = vm.addr(0xeeaaff00);
+    address manager = vm.addr(0x81273);
 
     function setUp() public {
         vm.createSelectFork("avalancheFuji");
-        bridge = new ExposedDestinationChainCCCB(routerAvalancheFuji, chainIdEthereumSepolia);
+        bridge = new ExposedDestinationChainCCCB(routerAvalancheFuji, chainIdEthereumSepolia, manager, ccipBnMAvalancheFuji);
 
-        bridge.setTokenAddress(ccipBnMAvalancheFuji);
+        vm.prank(manager);
         bridge.setDestinationContract(sourceContractAddress);
 
         vm.label(routerAvalancheFuji, "Router Avalanche Fuji");
