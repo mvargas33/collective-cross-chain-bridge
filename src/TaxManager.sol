@@ -24,7 +24,7 @@ contract TaxManager is Ownable {
         gasLimitPerUser = 65_000; // Average of bridge cost > 15 users
         gasPricePerChainSelector[ETH_SEPOLIA_CHAIN_SELECTOR] = 80_000_000_000; // 80 Gwei
         ethereumMainnetPriceFeed = AggregatorV3Interface(0x169E633A2D1E6c10dD91238Ba11c4A708dfEF37C);
-        destinationChainFees = 500_000_000_000_000; // Gas needed for ccpiSend
+        destinationChainFees = 800_000_000_000_000; // Gas needed for ccpiSend
         accumProtocolFees = 0;
         depositTax =
             (gasLimitPerUser * (100 + protocolFee)) * gasPricePerChainSelector[ETH_SEPOLIA_CHAIN_SELECTOR] / 100;
