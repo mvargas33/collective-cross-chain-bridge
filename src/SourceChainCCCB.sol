@@ -109,7 +109,7 @@ contract SourceChainCCCB is ISourceChainCCCB, CCIPReceiver, TaxManager {
             receiver: abi.encode(destinationContract),
             data: abi.encode(currentRound),
             tokenAmounts: tokenAmounts,
-            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 200_000, strict: false})),
+            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 2_000_000, strict: false})),
             feeToken: address(0) // Pay in native
         });
 
