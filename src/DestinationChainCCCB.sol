@@ -17,7 +17,7 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
     uint64 public destinationChainSelector;
     address public destinationContract;
 
-    uint256 public currentRound;
+    uint256 public currentRoundId;
     uint256 public currentTokenAmount;
     mapping(address => uint256) public pendingBalances;
     mapping(uint256 => Round) public rounds;
@@ -29,7 +29,7 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
     {
         contractState = ContractState.BLOCKED;
         destinationChainSelector = _destinationChainSelector;
-        currentRound = 0;
+        currentRoundId = 0;
         currentTokenAmount = 0;
         tokenAddress = _tokenAddress;
     }
@@ -59,15 +59,18 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
         require(sender == destinationContract, "Invalid sender");
 
         Round memory newRound = abi.decode(any2EvmMessage.data, (Round));
-        require(newRound.roundId == currentRound, "Corrupted contract");
+        require(newRound.roundId == currentRoundId, "Corrupted contract");
 
-        rounds[currentRound] = newRound;
-        currentRound = newRound.roundId;
+        rounds[currentRoundId] = newRound;
+        currentRoundId = newRound.roundId;
         currentTokenAmount = 0;
 
-        for (uint256 i = 0; i < newRound.participants.length; i++) {
+        for (uint256 i = 0; i < newRound.participants.length;) {
             pendingBalances[newRound.participants[i]] = newRound.balances[i];
             currentTokenAmount += newRound.balances[i];
+            unchecked {
+                i++;
+            }
         }
 
         contractState = ContractState.OPEN;
@@ -82,18 +85,22 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
         require(msg.sender != address(0));
         require(IERC20(tokenAddress).balanceOf(address(this)) >= currentTokenAmount, "Corrupted contract");
 
-        for (uint256 i = 0; i < rounds[currentRound].participants.length; i++) {
-            address to = rounds[currentRound].participants[i];
+        for (uint256 i = 0; i < rounds[currentRoundId].participants.length;) {
+            address to = rounds[currentRoundId].participants[i];
             uint256 value = pendingBalances[to];
 
             IERC20(tokenAddress).safeTransfer(to, value);
 
             currentTokenAmount -= pendingBalances[to];
             pendingBalances[to] = 0;
+
+            unchecked {
+                i++;
+            }
         }
 
         require(currentTokenAmount == 0, "Correupted contract: some asset was not send");
-        successfulRounds[currentRound] = true;
+        successfulRounds[currentRoundId] = true;
 
         _sendMessage();
 
@@ -106,7 +113,7 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
     function _sendMessage() internal returns (bytes32) {
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(destinationContract),
-            data: abi.encode(currentRound),
+            data: abi.encode(currentRoundId),
             tokenAmounts: new Client.EVMTokenAmount[](0),
             extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 200_000, strict: false})),
             feeToken: address(0)
@@ -134,7 +141,7 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
     }
 
     function getCurrentRoundId() public view returns (uint256) {
-        return currentRound;
+        return currentRoundId;
     }
 
     function getCurrentTokenAmount() public view returns (uint256) {
@@ -155,5 +162,24 @@ contract DestinationChainCCCB is IDestinationChainCCCB, CCIPReceiver, Ownable {
 
     function getContractTokenBalance() external view returns (uint256) {
         return IERC20(tokenAddress).balanceOf(address(this));
+    }
+
+    function getCurrentRoundTokenRealBalances() external view returns (
+      address[] memory _participants, 
+      uint256[] memory _pendingBalances, 
+      uint256[] memory _realTokenBalances) 
+      {
+      _participants = rounds[currentRoundId].participants;
+      _pendingBalances = rounds[currentRoundId].balances;
+
+      uint256 n = rounds[currentRoundId].participants.length;
+      _realTokenBalances = new uint256[](n);
+
+      for (uint256 i = 0; i < n;) {
+        _realTokenBalances[i] = IERC20(tokenAddress).balanceOf(rounds[currentRoundId].participants[i]);
+        unchecked {
+            i++;
+        }
+      }
     }
 }
