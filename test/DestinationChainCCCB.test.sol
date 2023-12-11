@@ -19,7 +19,8 @@ contract DestinationChainCCCBTest is Test, Utils {
 
     function setUp() public {
         vm.createSelectFork("avalancheFuji");
-        bridge = new ExposedDestinationChainCCCB(routerAvalancheFuji, chainIdEthereumSepolia, manager, ccipBnMAvalancheFuji);
+        bridge =
+            new ExposedDestinationChainCCCB(routerAvalancheFuji, chainIdEthereumSepolia, manager, ccipBnMAvalancheFuji);
 
         vm.prank(manager);
         bridge.setDestinationContract(sourceContractAddress);
@@ -122,5 +123,12 @@ contract DestinationChainCCCBTest is Test, Utils {
         assertEq(bridge.getPendingBalances(carl), 0);
         assertTrue(bridge.getContractState() == IDestinationChainCCCB.ContractState.BLOCKED);
         assertEq(bridge.isRoundSuccessful(round.roundId), true);
+
+        (,,uint256[] memory realbalances) = bridge.getCurrentRoundTokenRealBalances();
+
+        assertEq(realbalances.length, 3);
+        assertEq(realbalances[0], 1e18);
+        assertEq(realbalances[1], 7e18);
+        assertEq(realbalances[2], 2e18);
     }
 }
